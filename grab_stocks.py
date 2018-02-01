@@ -1,18 +1,10 @@
 import string
-import urllib.request as ur
 import threading
+import urllib.request as ur
 
 from bs4 import BeautifulSoup
 
-from db_config import database_connection
-
-cursor = database_connection.cursor()
-cursor.execute("SELECT symbol FROM stocks WHERE company_name IS NULL OR stock_market_code IS NULL")
-
-incomplete_symbols = set([str(x[0]) for x in cursor.fetchall()])
-cursor.execute("SELECT symbol FROM stocks")
-existing_symbols = set([str(x[0]) for x in cursor.fetchall()])
-print(len(existing_symbols))
+from db_config import database_connection, clear_stocks_table
 
 
 class GrabSymbolPage(threading.Thread):
@@ -33,28 +25,17 @@ class GrabSymbolPage(threading.Thread):
             if len(col) > 1:
                 symbol = col[0].string
                 company = col[1].string
-
                 cur = database_connection.cursor()
-
-                if symbol in existing_symbols:
-                    if symbol in incomplete_symbols:
-                        cur.execute("UPDATE stocks SET company_name= %s,stock_market_code= %s WHERE symbol=%s",
-                                    (company, self.stock_market_code, symbol))
-
-                        database_connection.commit()
-
-                else:
-                    try:
-                        cur.execute("INSERT INTO stocks (symbol, company_name, stock_market_code) VALUES (%s,%s,%s)",
-                                    (symbol, company, self.stock_market_code))
-
-                        database_connection.commit()
-                    except:
-                        print(symbol, company, self.stock_market_code)
+                try:
+                    cur.execute("INSERT INTO stock (symbol, company_name, stock_market_code) VALUES (%s,%s,%s)",
+                            (symbol, company, self.stock_market_code))
+                except:
+                    pass
+                database_connection.commit()
 
 
 def main():
-    max_threads = 200
+    max_threads = 10
 
     threads = []
 
@@ -66,13 +47,14 @@ def main():
     for option in select.findAll('option'):
         stock_market_codes.append(option['value'])
 
-    iterations = len(stock_market_codes) * len(string.ascii_uppercase)
+    print(stock_market_codes)
+    characters = [*string.ascii_uppercase, *range(10)]
+    iterations = len(stock_market_codes) * len(characters)
     iteration = 0
     for stock_market_code in stock_market_codes:
-        for character in string.ascii_uppercase:
+        for character in characters:
             iteration += 1
-            if iterations % 100:
-                print(iteration, 'of', iterations)
+            print('Iteration', iteration, 'of', iterations)
 
             thread = GrabSymbolPage(character, stock_market_code)
             thread.start()
@@ -81,5 +63,13 @@ def main():
                 for thread in threads:
                     thread.join()
 
+                threads = []
+    if len(threads) > 0:
+        for thread in threads:
+            thread.join()
 
+    print('Done')
+
+
+clear_stocks_table()
 main()
